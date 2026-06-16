@@ -20,7 +20,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { LandPropertyReport, HistoryItem } from "./types";
 import ReportView from "./components/ReportView";
-import { generateClientFallback } from "./clientFallback";
+import { runClientSideRealtimeSearch } from "./clientRealtime";
 
 const PRESETS = [
   { id: "p1", name: "역삼동 강남파이낸스센터", address: "서울특별시 강남구 테헤란로 152" },
@@ -138,12 +138,20 @@ export default function App() {
         }
         result = await response.json();
       } catch (svrErr) {
-        console.warn("[App Search] API server search failed or is offline. Activating client-side native simulator fallback.", svrErr);
-        const fallbackReport = generateClientFallback(searchAddress);
-        result = {
-          success: true,
-          data: fallbackReport
-        };
+        console.warn("[App Search] API server search failed or is offline. Activating client-side real-time direct search helper.", svrErr);
+        try {
+          const realtimeReport = await runClientSideRealtimeSearch(searchAddress, geminiKey, vworldKey);
+          result = {
+            success: true,
+            data: realtimeReport
+          };
+        } catch (realtimeErr: any) {
+          result = {
+            success: false,
+            error: "실시간 조회 오류",
+            details: realtimeErr.message || "서버가 중단되어 있고 개인 API 키가 구비되지 않아 실시간 AI 토지분석이 불가능합니다."
+          };
+        }
       }
 
       clearInterval(interval);

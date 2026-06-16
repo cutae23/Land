@@ -540,79 +540,58 @@ app.post("/api/land/search", async (req, res) => {
 
   let researchText = "";
   let sources: any[] = [];
-  let useFallbackGen = false;
 
   if (keyIsMissing || !activeAi) {
-    useFallbackGen = true;
-  } else {
-    // Tier 1: Try Gemini 3.5 Flash WITH Google Search Grounding for real-time live data
+    return res.status(403).json({
+      success: false,
+      error: "Gemini API 키 연결 유실",
+      details: "서버 환경에 등록된 GEMINI_API_KEY가 존재하지 않거나 사용자가 등록한 키가 유효하지 않습니다. 우측 상단의 'API 연동 설정' 메뉴에서 본인의 Gemini API 키를 활성화하고 다시 시도해 주십시오."
+    });
+  }
+
+  // Tier 1: Try Gemini 3.5 Flash WITH Google Search Grounding for real-time live data
+  try {
+    console.log(`[Tier 1] Researching land & property info via Search Grounding: ${queryAddress}`);
+    const researchResponse = await activeAi.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `대한민국 주소 또는 장소명: "${queryAddress}"
+위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이를 실시간 구글 검색을 통해 상세히 철저히 조사하고 한국어로 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    researchText = researchResponse.text || "";
+    sources = researchResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    console.log(`[Tier 1 Success] Research collected. Length: ${researchText.length}`);
+  } catch (tier1Error: any) {
+    console.warn("[Tier 1 Failed] Search Grounding failed, executing Tier 2 (Standard Gen)", tier1Error);
+    
+    // Tier 2: Try standard text generation WITHOUT Google Search Grounding to avoid tool failures
     try {
-      console.log(`[Tier 1] Researching land & property info via Search Grounding: ${queryAddress}`);
-      const researchResponse = await activeAi.models.generateContent({
+      const researchResponse2 = await (activeAi as GoogleGenAI).models.generateContent({
         model: "gemini-3.5-flash",
         contents: `대한민국 주소 또는 장소명: "${queryAddress}"
-위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이를 실시간 구글 검색을 통해 상세히 철저히 조사하고 한국어로 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
-        config: {
-          tools: [{ googleSearch: {} }],
-        },
-      });
-
-      researchText = researchResponse.text || "";
-      sources = researchResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-      console.log(`[Tier 1 Success] Research collected. Length: ${researchText.length}`);
-    } catch (tier1Error: any) {
-      console.warn("[Tier 1 Failed] Search Grounding failed, executing Tier 2 (Standard Gen)", tier1Error);
-      
-      // Tier 2: Try standard text generation WITHOUT Google Search Grounding to avoid tool failures
-      try {
-        const researchResponse2 = await (activeAi as GoogleGenAI).models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: `대한민국 주소 또는 장소명: "${queryAddress}"
 위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이에 대하여 당신의 사전 학습된 최상의 지적 정보를 기반으로 철저히 조사해서 한국어로 정밀히 기술 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
-        });
-        researchText = researchResponse2.text || "";
-        console.log(`[Tier 2 Success] Standard generation text length: ${researchText.length}`);
-      } catch (tier2Error: any) {
-        console.error("[Tier 2 Failed] Standard text generation failed. Activating Tier 3 Deterministic generator", tier2Error);
-        useFallbackGen = true;
-      }
+      });
+      researchText = researchResponse2.text || "";
+      console.log(`[Tier 2 Success] Standard generation text length: ${researchText.length}`);
+    } catch (tier2Error: any) {
+      console.error("[Tier 2 Failed] Standard text generation failed.", tier2Error);
+      return res.status(500).json({
+        success: false,
+        error: "실시간 정보 검색 실패",
+        details: "Google 검색 그라운딩 및 로컬 생성 모두 실패했습니다. 주소가 기 올바른 형식인지 또는 설정의 API 사용 한도를 확인하십시오."
+      });
     }
   }
 
-  // If we can't search or generate the raw description, bypass straight to beautiful simulation fallback
-  if (useFallbackGen || !researchText) {
-    const data: any = generateDeterministicFallbackReport(queryAddress, vworldData);
-    const mapLinks = generateMapLinks(queryAddress);
-    data.mapLinks = mapLinks;
-
-    // Preserve Vworld official values in the final report
-    if (vworldData) {
-      data.isVworldSynced = true;
-      if (vworldData.refinedAddress) {
-        data.address.roadAddress = vworldData.refinedAddress;
-      }
-      if (vworldData.jimo) {
-        data.basicInfo.landType = vworldData.jimo;
-      }
-      if (vworldData.areaSqm) {
-        data.basicInfo.areaSqm = vworldData.areaSqm;
-        data.basicInfo.areaPyung = Math.round(vworldData.areaSqm * 0.3025 * 10) / 10;
-        data.basicInfo.officialPricePerPyung = Math.round(data.basicInfo.officialPricePerSqm * 3.3058);
-      }
-    }
-
-    const historyItem = {
-      id: Date.now().toString(),
-      searchQuery: queryAddress,
-      roadAddress: data.address.roadAddress,
-      jibunAddress: data.address.jibunAddress,
-      landType: data.basicInfo.landType,
-      areaSqm: data.basicInfo.areaSqm,
-      roiGrade: data.aiAnalysis.roiGrade,
-      searchedAt: new Date().toISOString(),
-    };
-    searchHistory.unshift(historyItem);
-    return res.json({ success: true, data, sources: [] });
+  if (!researchText) {
+    return res.status(500).json({
+      success: false,
+      error: "AI 지적데이터 수집 불가",
+      details: "입력된 장소/주소에 대한 구체적인 지적 정보나 웹 정보가 확인되지 않아 보고서 생성이 중단되었습니다."
+    });
   }
 
   // If we have raw research, proceed to step 2: Convert to strict schema
@@ -767,50 +746,11 @@ ${researchText}
     });
 
   } catch (error: any) {
-    console.error("[JSON Structuring Error] Proceeding to deterministic safe fallback generator", error);
-    
-    // Final Safe Fallback
-    const data: any = generateDeterministicFallbackReport(queryAddress, vworldData);
-    const mapLinks = generateMapLinks(queryAddress);
-    data.mapLinks = mapLinks;
-
-    // Preserving Vworld parameters in JSON structures fallback
-    if (vworldData) {
-      data.isVworldSynced = true;
-      if (vworldData.refinedAddress) {
-        data.address.roadAddress = vworldData.refinedAddress;
-      }
-      if (vworldData.jimo) {
-        data.basicInfo.landType = vworldData.jimo;
-      }
-      if (vworldData.areaSqm) {
-        data.basicInfo.areaSqm = vworldData.areaSqm;
-        data.basicInfo.areaPyung = Math.round(vworldData.areaSqm * 0.3025 * 10) / 10;
-        data.basicInfo.officialPricePerPyung = Math.round(data.basicInfo.officialPricePerSqm * 3.3058);
-      }
-    }
-
-    const historyItem = {
-      id: Date.now().toString(),
-      searchQuery: queryAddress,
-      roadAddress: data.address.roadAddress,
-      jibunAddress: data.address.jibunAddress,
-      landType: data.basicInfo.landType,
-      areaSqm: data.basicInfo.areaSqm,
-      roiGrade: data.aiAnalysis.roiGrade,
-      searchedAt: new Date().toISOString(),
-    };
-
-    const existingIndex = searchHistory.findIndex(h => h.searchQuery.toLowerCase() === queryAddress.toLowerCase());
-    if (existingIndex !== -1) {
-      searchHistory.splice(existingIndex, 1);
-    }
-    searchHistory.unshift(historyItem);
-
-    return res.json({
-      success: true,
-      data,
-      sources: []
+    console.error("[JSON Structuring Error] Refusing to use mock fallback. Returning error.", error);
+    return res.status(500).json({
+      success: false,
+      error: "보고서 데이터 구조화 실패",
+      details: "수집된 팩트 정보를 가독성 높은 보고서 형태(JSON 구조)로 파싱하는 중 오류가 발생했습니다. 잠시 후 검색을 다시 가동해 주십시오."
     });
   }
 });
