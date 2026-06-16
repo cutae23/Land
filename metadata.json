@@ -1,0 +1,6 @@
+{
+  "name": "토지정보 마스터",
+  "description": "대한민국 주소를 입력하면 지목, 면적, 공시지가, 용도지역, 행위제한 등 상세한 토지 및 건축물 대장 정보를 AI로 분석하여 가장 알기 쉽게 보여주는 종합 부동산 조회 서비스입니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
