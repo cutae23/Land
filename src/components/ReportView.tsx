@@ -261,12 +261,8 @@ export default function ReportView({ report, isBookmarked, onToggleBookmark }: R
             </div>
             
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight font-display">
-              {report.address.roadAddress || report.address.jibunAddress}
+              {report.address.jibunAddress}
             </h1>
-            
-            <p className="text-sm text-slate-500 font-mono">
-              [지번] {report.address.jibunAddress || "-"}
-            </p>
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-auto">
@@ -333,7 +329,7 @@ export default function ReportView({ report, isBookmarked, onToggleBookmark }: R
                 </p>
               ) : (
                 <p>
-                  입력하신 주소({report.address.roadAddress || report.address.jibunAddress})에 대한 <b>AI 실시간 정밀 크롤링 및 인공지능 자산 분석</b>이 완료되었습니다. 검출된 공부 대지면적({report.basicInfo.areaSqm}m²) 및 지목({report.basicInfo.landType}) 수치를 기반으로 한 맞춤형 법적·투자 분석 보고서입니다. (공인 Vworld 키 등록 시 국토교통부 공부 대장과 100% 한계 오차 없는 매핑 보정이 행해집니다.)
+                  입력하신 주소({report.address.jibunAddress})에 대한 <b>AI 실시간 정밀 크롤링 및 인공지능 자산 분석</b>이 완료되었습니다. 검출된 공부 대지면적({report.basicInfo.areaSqm}m²) 및 지목({report.basicInfo.landType}) 수치를 기반으로 한 맞춤형 법적·투자 분석 보고서입니다. (공인 Vworld 키 등록 시 국토교통부 공부 대장과 100% 한계 오차 없는 매핑 보정이 행해집니다.)
                 </p>
               )}
             </div>
@@ -742,15 +738,9 @@ export default function ReportView({ report, isBookmarked, onToggleBookmark }: R
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="min-w-full divide-y divide-slate-200 text-xs font-mono">
                 <tbody className="divide-y divide-slate-200">
-                  <tr className="bg-slate-50/80">
-                    <td className="px-4 py-3 font-semibold text-slate-500 w-1/4 border-r border-slate-200 text-center">신청인 소재지</td>
-                    <td className="px-4 py-3 text-slate-800 font-sans font-semibold col-span-3 text-left">
-                      {report.address.roadAddress || "-"}
-                    </td>
-                  </tr>
                   <tr>
                     <td className="px-4 py-3 font-semibold text-slate-500 w-1/4 border-r border-slate-200 text-center bg-slate-50/80">대지 지번주소</td>
-                    <td className="px-4 py-3 text-slate-700 text-left">
+                    <td className="px-4 py-3 text-slate-800 text-left font-semibold">
                       {report.address.jibunAddress || "-"}
                     </td>
                   </tr>

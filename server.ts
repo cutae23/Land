@@ -77,18 +77,10 @@ async function fetchFromVworld(address: string, apiKey: string) {
     console.log(`[Vworld API] Processing address query: "${address}"`);
     
     // Step 1: Forward Geocoding (Address -> EPSG:4326 Lat/Lng Coordinates)
-    // Try PARCEL (지번) geocoding first
+    // Try PARCEL (지번) geocoding exclusively
     let url = `http://api.vworld.kr/req/address?service=address&request=getcoord&key=${apiKey}&address=${encodeURIComponent(address)}&type=PARCEL&crs=EPSG:4326`;
     let res = await fetch(url);
     let json: any = await res.json();
-    
-    // Fall back to ROAD (도로명) geocoding if PARCEL yielded no result
-    if (json?.response?.status !== "OK" || !json?.response?.result?.point) {
-      console.log(`[Vworld API] Parcel geocode fell back, trying ROAD name search...`);
-      url = `http://api.vworld.kr/req/address?service=address&request=getcoord&key=${apiKey}&address=${encodeURIComponent(address)}&type=ROAD&crs=EPSG:4326`;
-      res = await fetch(url);
-      json = await res.json();
-    }
     
     if (json?.response?.status !== "OK" || !json?.response?.result?.point) {
       console.warn(`[Vworld API] Address geocoding status: ${json?.response?.status || "EMPTY"}`);
@@ -695,16 +687,23 @@ ${researchText}
     const mapLinks = generateMapLinks(queryAddress);
     parsedData.mapLinks = mapLinks;
 
+    if (!parsedData.address) {
+      parsedData.address = { roadAddress: "", jibunAddress: "" };
+    }
+    // Always fallback/override roadAddress to be jibunAddress as per user instruction
+    parsedData.address.roadAddress = parsedData.address.jibunAddress || queryAddress;
+
     // Direct, absolute integration of official geodata to prevent AI hallucinations or text grounding mismatches
     if (vworldData) {
       parsedData.isVworldSynced = true;
       if (vworldData.coord) {
         parsedData.coord = vworldData.coord;
       }
-      if (!parsedData.address) parsedData.address = {};
-      if (vworldData.refinedAddress) {
-        parsedData.address.roadAddress = vworldData.refinedAddress;
+      if (vworldData.jibun) {
+        parsedData.address.jibunAddress = vworldData.jibun;
       }
+      parsedData.address.roadAddress = parsedData.address.jibunAddress || queryAddress;
+
       if (!parsedData.basicInfo) parsedData.basicInfo = {};
       if (vworldData.jimo) {
         parsedData.basicInfo.landType = vworldData.jimo;

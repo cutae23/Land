@@ -570,7 +570,7 @@ export default function App() {
                       className="p-3 bg-slate-50/50 hover:bg-indigo-50/40 border border-slate-100 hover:border-indigo-100 rounded-xl transition flex items-center justify-between gap-3 cursor-pointer group"
                     >
                       <div className="space-y-0.5 min-w-0">
-                        <div className="text-xs font-bold text-slate-800 truncate select-all">{item.roadAddress}</div>
+                        <div className="text-xs font-bold text-slate-800 truncate select-all">{item.jibunAddress || item.searchQuery}</div>
                         <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
                           <span>지목: {item.landType}</span>
                           <span>•</span>
@@ -674,8 +674,8 @@ export default function App() {
 
             <ReportView 
               report={report} 
-              isBookmarked={bookmarks.includes(report.address.roadAddress) || bookmarks.includes(report.address.jibunAddress)}
-              onToggleBookmark={() => handleToggleBookmark(report.address.roadAddress || report.address.jibunAddress)}
+              isBookmarked={bookmarks.includes(report.address.jibunAddress)}
+              onToggleBookmark={() => handleToggleBookmark(report.address.jibunAddress)}
             />
           </div>
         )}

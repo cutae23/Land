@@ -16,19 +16,12 @@ export async function runClientSideRealtimeSearch(
   if (clientVworldKey && clientVworldKey.trim()) {
     try {
       const apiKeyClean = clientVworldKey.trim();
+      // We strictly use PARCEL geocoding here to avoid incorrect road fallback mapping
       let url = `https://api.vworld.kr/req/address?service=address&request=getcoord&key=${apiKeyClean}&address=${encodeURIComponent(
         queryAddress
       )}&type=PARCEL&crs=EPSG:4326`;
       let res = await fetch(url);
       let json = await res.json();
-
-      if (json?.response?.status !== "OK" || !json?.response?.result?.point) {
-        url = `https://api.vworld.kr/req/address?service=address&request=getcoord&key=${apiKeyClean}&address=${encodeURIComponent(
-          queryAddress
-        )}&type=ROAD&crs=EPSG:4326`;
-        res = await fetch(url);
-        json = await res.json();
-      }
 
       if (json?.response?.status === "OK" && json?.response?.result?.point) {
         const { x, y } = json.response.result.point;
@@ -173,6 +166,12 @@ export async function runClientSideRealtimeSearch(
 
   try {
     const data = JSON.parse(rawText.trim());
+    if (!data.address) {
+      data.address = { roadAddress: "", jibunAddress: "" };
+    }
+    // Override roadAddress to prevent wrong road name mapping as per user instruction
+    data.address.roadAddress = data.address.jibunAddress || queryAddress;
+
     if (vworldData && vworldData.coord) {
       data.coord = vworldData.coord;
     } else {
