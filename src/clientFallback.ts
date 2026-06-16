@@ -134,8 +134,13 @@ export function generateClientFallback(address: string): LandPropertyReport {
     cautions.push("본 필지는 시흥시 소유의 공공 체육시설용지로 개발 목적이 공익체육시설 및 관련 복합문화시설로 한정되어 있어, 민간의 단독 주택이나 근린생활시설 등의 개별 허가는 극히 제한됩니다.");
     cautions.push("배곧신도시 지구단위계획 및 특별계획구역 건축 가이드라인 제한사항을 시흥시청 도시균형개발과 및 체육진흥과를 통해 교차 검증하십시오.");
   } else if (isKwangwoon) {
+    let houseNumber = "85-1";
+    const kwangwoonMatch = address.match(/월계동\s*([0-9\-]+)/);
+    if (kwangwoonMatch && kwangwoonMatch[1]) {
+      houseNumber = kwangwoonMatch[1];
+    }
     roadAddress = "서울특별시 노원구 광운로 20 (월계동)";
-    jibunAddress = "서울특별시 노원구 월계동 85-1 (광운대학교 인근)";
+    jibunAddress = `서울특별시 노원구 월계동 ${houseNumber} (광운대학교 인근)`;
     landType = "대 (대지)";
     areaSqm = 420;
     officialPricePerSqm = 8200000;
