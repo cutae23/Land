@@ -11,15 +11,25 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize Gemini SDK with telemetry header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+// Define a lazy initializer for the default client to avoid crashing on startup if key is undefined or missing
+let defaultAiClient: GoogleGenAI | null = null;
+function getDefaultAiClient(): GoogleGenAI {
+  if (!defaultAiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("GEMINI_API_KEY environment variable is not defined.");
+    }
+    defaultAiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return defaultAiClient;
+}
 
 // Simple in-memory storage for search history and bookmarks in this session
 const searchHistory: any[] = [];
@@ -455,18 +465,32 @@ app.post("/api/land/search", async (req, res) => {
   const queryAddress = address.trim();
   console.log(`[Land Search] Fetching information for: ${queryAddress}`);
 
-  // Dynamic Gemini Client Selection
-  let activeAi = ai;
+  // Dynamic Gemini Client Selection with resilient error handling if key is missing
+  let activeAi: GoogleGenAI | null = null;
+  let keyIsMissing = false;
+
   if (geminiKey && typeof geminiKey === "string" && geminiKey.trim() !== "") {
     console.log("[Gemini API] Initializing dynamic search with user-provided Gemini API key.");
-    activeAi = new GoogleGenAI({
-      apiKey: geminiKey.trim(),
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
+    try {
+      activeAi = new GoogleGenAI({
+        apiKey: geminiKey.trim(),
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
         },
-      },
-    });
+      });
+    } catch (err) {
+      console.error("[Gemini API Error] Failed to initialize user-provided Gemini client:", err);
+      keyIsMissing = true;
+    }
+  } else {
+    try {
+      activeAi = getDefaultAiClient();
+    } catch (err) {
+      console.warn("[Gemini API Warning] process.env.GEMINI_API_KEY is not set. Bypassing to deterministic fallback.");
+      keyIsMissing = true;
+    }
   }
 
   // Fetch from Vworld if key is configured either in client storage or .env
@@ -518,36 +542,40 @@ app.post("/api/land/search", async (req, res) => {
   let sources: any[] = [];
   let useFallbackGen = false;
 
-  // Tier 1: Try Gemini 3.5 Flash WITH Google Search Grounding for real-time live data
-  try {
-    console.log(`[Tier 1] Researching land & property info via Search Grounding: ${queryAddress}`);
-    const researchResponse = await activeAi.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `대한민국 주소 또는 장소명: "${queryAddress}"
-위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이를 실시간 구글 검색을 통해 상세히 철저히 조사하고 한국어로 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
-    });
-
-    researchText = researchResponse.text || "";
-    sources = researchResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    console.log(`[Tier 1 Success] Research collected. Length: ${researchText.length}`);
-  } catch (tier1Error: any) {
-    console.warn("[Tier 1 Failed] Search Grounding failed, executing Tier 2 (Standard Gen)", tier1Error);
-    
-    // Tier 2: Try standard text generation WITHOUT Google Search Grounding to avoid tool failures
+  if (keyIsMissing || !activeAi) {
+    useFallbackGen = true;
+  } else {
+    // Tier 1: Try Gemini 3.5 Flash WITH Google Search Grounding for real-time live data
     try {
-      const researchResponse2 = await activeAi.models.generateContent({
+      console.log(`[Tier 1] Researching land & property info via Search Grounding: ${queryAddress}`);
+      const researchResponse = await activeAi.models.generateContent({
         model: "gemini-3.5-flash",
         contents: `대한민국 주소 또는 장소명: "${queryAddress}"
-위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이에 대하여 당신의 사전 학습된 최상의 지적 정보를 기반으로 철저히 조사해서 한국어로 정밀히 기술 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
+위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이를 실시간 구글 검색을 통해 상세히 철저히 조사하고 한국어로 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
       });
-      researchText = researchResponse2.text || "";
-      console.log(`[Tier 2 Success] Standard generation text length: ${researchText.length}`);
-    } catch (tier2Error: any) {
-      console.error("[Tier 2 Failed] Standard text generation failed. Activating Tier 3 Deterministic generator", tier2Error);
-      useFallbackGen = true;
+
+      researchText = researchResponse.text || "";
+      sources = researchResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      console.log(`[Tier 1 Success] Research collected. Length: ${researchText.length}`);
+    } catch (tier1Error: any) {
+      console.warn("[Tier 1 Failed] Search Grounding failed, executing Tier 2 (Standard Gen)", tier1Error);
+      
+      // Tier 2: Try standard text generation WITHOUT Google Search Grounding to avoid tool failures
+      try {
+        const researchResponse2 = await (activeAi as GoogleGenAI).models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: `대한민국 주소 또는 장소명: "${queryAddress}"
+위 주소지 또는 시설물 필지에 대한 지목(예: 대, 전, 답, 임야), 토지 면적(m² 및 평), 최근 3~4개년 공시지가 추이(원/m²), 국토계획법상 용도지역(예: 제3종일반주거지역, 준주거지역, 자연녹지지역 등), 행위제한 및 건축제한 규제(건폐율/용적률 법정 제한), 건축물대장 정보(건물 유무, 구조, 연면적, 층수, 승인일), 주위 시세/실거래 추이에 대하여 당신의 사전 학습된 최상의 지적 정보를 기반으로 철저히 조사해서 한국어로 정밀히 기술 요약해 주십시오.${vworldInstructions}${specialLocationInstructions}`,
+        });
+        researchText = researchResponse2.text || "";
+        console.log(`[Tier 2 Success] Standard generation text length: ${researchText.length}`);
+      } catch (tier2Error: any) {
+        console.error("[Tier 2 Failed] Standard text generation failed. Activating Tier 3 Deterministic generator", tier2Error);
+        useFallbackGen = true;
+      }
     }
   }
 
@@ -663,7 +691,7 @@ ${researchText}
 주의사항: 오직 마크다운 없이 순수한 JSON 결과 콘텐츠만 반환하세요. { } 전체를 감싼 형태의 단 한 개의 JSON이어야 합니다.
 `;
 
-    const jsonResponse = await activeAi.models.generateContent({
+    const jsonResponse = await (activeAi as GoogleGenAI).models.generateContent({
       model: "gemini-3.5-flash",
       contents: structurePrompt,
       config: {

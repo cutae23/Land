@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { LandPropertyReport, HistoryItem } from "./types";
 import ReportView from "./components/ReportView";
+import { generateClientFallback } from "./clientFallback";
 
 const PRESETS = [
   { id: "p1", name: "역삼동 강남파이낸스센터", address: "서울특별시 강남구 테헤란로 152" },
@@ -58,9 +59,18 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setHistory(data.history);
+        localStorage.setItem("landHistory", JSON.stringify(data.history));
       }
     } catch (err) {
-      console.error("Failed to load history", err);
+      console.warn("Server history fetch failed. Reading from localStorage.", err);
+      try {
+        const localHist = localStorage.getItem("landHistory");
+        if (localHist) {
+          setHistory(JSON.parse(localHist));
+        }
+      } catch (localErr) {
+        console.error("localStorage history parse error", localErr);
+      }
     }
   };
 
@@ -70,9 +80,18 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setBookmarks(data.bookmarks);
+        localStorage.setItem("landBookmarks", JSON.stringify(data.bookmarks));
       }
     } catch (err) {
-      console.error("Failed to load bookmarks", err);
+      console.warn("Server bookmarks fetch failed. Reading from localStorage.", err);
+      try {
+        const localBookmarks = localStorage.getItem("landBookmarks");
+        if (localBookmarks) {
+          setBookmarks(JSON.parse(localBookmarks));
+        }
+      } catch (localErr) {
+        console.error("localStorage bookmarks parse error", localErr);
+      }
     }
   };
 
@@ -103,18 +122,33 @@ export default function App() {
     }, 2800);
 
     try {
-      const response = await fetch("/api/land/search", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ address: searchAddress, vworldKey, geminiKey })
-      });
+      let result;
+      try {
+        const response = await fetch("/api/land/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ address: searchAddress, vworldKey, geminiKey })
+        });
 
-      const result = await response.json();
+        const contentType = response.headers.get("Content-Type") || "";
+        if (!response.ok || !contentType.includes("application/json")) {
+          throw new Error("SERVER_OFFLINE_OR_HTML");
+        }
+        result = await response.json();
+      } catch (svrErr) {
+        console.warn("[App Search] API server search failed or is offline. Activating client-side native simulator fallback.", svrErr);
+        const fallbackReport = generateClientFallback(searchAddress);
+        result = {
+          success: true,
+          data: fallbackReport
+        };
+      }
+
       clearInterval(interval);
 
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         const errorMsg = result.details 
           ? `${result.error} (오류 내용: ${result.details})` 
           : (result.error || "토지 정보를 검색하는 법적 조회 과정에서 문제가 발생했습니다.");
@@ -123,6 +157,28 @@ export default function App() {
 
       setReport(result.data);
       setAddress(""); // clear input box on success
+
+      // Save to client history fallback
+      const localHistStr = localStorage.getItem("landHistory") || "[]";
+      try {
+        const localHist = JSON.parse(localHistStr);
+        const historyItem = {
+          id: Date.now().toString(),
+          searchQuery: searchAddress,
+          roadAddress: result.data.address.roadAddress,
+          jibunAddress: result.data.address.jibunAddress,
+          landType: result.data.basicInfo.landType,
+          areaSqm: result.data.basicInfo.areaSqm,
+          roiGrade: result.data.aiAnalysis.roiGrade,
+          searchedAt: new Date().toISOString(),
+        };
+        const updatedHist = [historyItem, ...localHist.filter((item: any) => item.searchQuery !== searchAddress)].slice(0, 50);
+        localStorage.setItem("landHistory", JSON.stringify(updatedHist));
+        setHistory(updatedHist);
+      } catch (histErr) {
+        console.error("Local history save error", histErr);
+      }
+
       await fetchHistory(); // refresh history list
     } catch (err: any) {
       clearInterval(interval);
@@ -147,9 +203,18 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setBookmarks(data.bookmarks);
+        localStorage.setItem("landBookmarks", JSON.stringify(data.bookmarks));
       }
     } catch (err) {
-      console.error("Bookmark toggle failed", err);
+      console.warn("Bookmark toggle API failed, falling back to local state.", err);
+      let updatedBookmarks = [...bookmarks];
+      if (isBookmarked) {
+        updatedBookmarks = updatedBookmarks.filter(addr => addr !== targetAddress);
+      } else {
+        updatedBookmarks.push(targetAddress);
+      }
+      setBookmarks(updatedBookmarks);
+      localStorage.setItem("landBookmarks", JSON.stringify(updatedBookmarks));
     }
   };
 
@@ -159,9 +224,12 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setHistory([]);
+        localStorage.setItem("landHistory", "[]");
       }
     } catch (err) {
-      console.error("Clear history failed", err);
+      console.warn("Clear history API failed, falling back to local state.", err);
+      setHistory([]);
+      localStorage.setItem("landHistory", "[]");
     }
   };
 
